@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Grading Analysis</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f1f3f4;
+            border-radius: 6px;
+        }
+        
+        select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 300px;
+        }
+        
+        .chart-container {
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            margin: 15px 0;
+            gap: 30px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .old-dot { background-color: lightblue; }
+        .new-dot { background-color: darkblue; }
+        .line-color { background-color: lightblue; width: 30px; height: 3px; border-radius: 1px; }
+        
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .wide-column {
+            max-width: 350px;
+        }
+        
+        .expanded-row td {
+            white-space: normal;
+            word-wrap: break-word;
+            max-height: none;
+            vertical-align: top;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .highlighted-row {
+            background-color: #e3f2fd !important;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .chart-info {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin: 20px 0;
+        }
+        
+        .leadership-toggle-active {
+            background-color: darkorange !important;
+            color: white !important;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Job Grading Analysis Dashboard</h1>
+        
+        <div class="controls">
+            <div style="margin-bottom: 15px;">
+                <label for="csvFile"><strong>Upload CSV File:</strong></label>
+                <input type="file" id="csvFile" accept=".csv" style="margin-left: 10px;">
+                <span id="fileStatus" style="margin-left: 15px; color: #666;"></span>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="font-weight: bold; color: #333;">
+                    <input type="radio" name="filterType" value="family" checked style="margin-right: 5px;">
+                    Filter by Job Family
+                </label>
+                <label style="font-weight: bold; color: #333; margin-left: 20px;">
+                    <input type="radio" name="filterType" value="paygrade" style="margin-right: 5px;">
+                    Filter by Pay Grade
+                </label>
+            </div>
+            
+            <div>
+                <label for="jobFamilySelect"><strong>Select Job Families:</strong></label>
+                <select id="jobFamilySelect" multiple size="6" disabled style="width: 100%; height: 120px;">
+                    <option value="">-- Upload CSV file first --</option>
+                </select>
+                <label for="payGradeSelect" style="display: none;"><strong>Select Pay Grades:</strong></label>
+                <select id="payGradeSelect" multiple size="6" disabled style="width: 100%; height: 120px; display: none;">
+                    <option value="">-- Upload CSV file first --</option>
+                </select>
+                <small style="color: #666; font-size: 11px;">Hold Ctrl/Cmd for multiple selection</small>
+            </div>
+            
+            <div style="margin-top: 15px;">
+                <label style="font-weight: bold; color: #333;" id="leadershipToggleLabel">
+                    <input type="checkbox" id="includeLeadership" style="margin-right: 5px;">
+                    Include Leadership Points
+                </label>
+                <div style="font-size: 10px; color: #666; margin-top: 2px;">Toggle to add leadership points to new grading</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-dot old-dot"></div>
+                    <span>Old Grading (ERA Points)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot new-dot" id="newDotLegend"></div>
+                    <span id="newDotText">New Grading (Total Points)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="line-color"></div>
+                    <span>Connection Line</span>
+                </div>
+            </div>
+            <svg id="chart"></svg>
+            <div class="chart-info" id="chartInfo">Upload your CSV file and select items to view the grading comparison</div>
+        </div>
+        
+        <div class="table-container">
+            <table id="jobTable">
+                <thead id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <script>
+        console.log('Script loaded successfully');
+        
+        let jobData = [];
+        
+        // CSV parsing functions
+        function parseCSV(text) {
+            console.log('parseCSV called with text length:', text.length);
+            
+            const lines = text.trim().split(/\r?\n/);
+            console.log('Total lines:', lines.length);
+            
+            if (lines.length < 2) {
+                console.error('Not enough lines in CSV');
+                return [];
+            }
+            
+            const headers = lines[0].split(';');
+            console.log('Headers found:', headers.length, headers);
+            
+            const data = [];
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === '') continue;
+                
+                const values = parseCSVLine(lines[i], ';');
+                const row = {};
+                
+                headers.forEach((header, index) => {
+                    const value = values[index] || '';
+                    // Convert numeric fields
+                    if (['era_total_points', 'TOTAL_POINTS', 'TOTAL_POINTS_w/leadership', 'LEADERSHOP_POINTS', 'COMPETENCE_ERA_POINTS', 'RESPONSIBILITY_ERA_POINTS', 'era_pay_group', 'MIN_era_pay_grade', 'MAX_era_pay_grade', 'COMPETENCE_POINTS', 'RESPONSIBILITY_POINTS', 'INTERACTION_POINTS'].includes(header.trim())) {
+                        row[header.trim()] = value ? parseFloat(value) : null;
+                    } else {
+                        row[header.trim()] = value.trim();
+                    }
+                });
+                
+                data.push(row);
+            }
+            
+            console.log('Parsed data:', data.length, 'rows');
+            if (data.length > 0) {
+                console.log('First row sample:', data[0]);
+            }
+            return data;
+        }
+        
+        function parseCSVLine(line, delimiter) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === delimiter && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            
+            result.push(current);
+            return result.map(field => field.replace(/^"|"$/g, ''));
+        }
+        
+        // File upload handling
+        function setupFileUpload() {
+            console.log('Setting up file upload...');
+            
+            const fileInput = document.getElementById('csvFile');
+            const fileStatus = document.getElementById('fileStatus');
+            
+            fileInput.addEventListener('change', function(event) {
+                console.log('File selected!');
+                const file = event.target.files[0];
+                
+                if (!file) {
+                    console.log('No file selected');
+                    return;
+                }
+                
+                console.log('File:', file.name, file.size, 'bytes');
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    console.log('File read successfully');
+                    const content = e.target.result;
+                    
+                    jobData = parseCSV(content);
+                    
+                    if (jobData.length > 0) {
+                        fileStatus.textContent = `✓ Loaded ${jobData.length} jobs`;
+                        fileStatus.style.color = '#28a745';
+                        
+                        // Populate dropdowns
+                        populateJobFamilyDropdown();
+                        populatePayGradeDropdown();
+                        
+                        console.log('File processing complete');
+                    } else {
+                        fileStatus.textContent = '✗ No data found';
+                        fileStatus.style.color = '#dc3545';
+                    }
+                };
+                
+                reader.onerror = function(e) {
+                    console.error('File read error:', e);
+                    fileStatus.textContent = '✗ Error reading file';
+                    fileStatus.style.color = '#dc3545';
+                };
+                
+                reader.readAsText(file, 'utf-8');
+            });
+        }
+        
+        // Dropdown population
+        function populateJobFamilyDropdown() {
+            console.log('Populating job family dropdown...');
+            
+            const families = [...new Set(jobData.map(d => d['Job_Profile_w/o_Level']).filter(f => f))];
+            families.sort();
+            
+            console.log('Found job families:', families.length);
+            
+            const select = document.getElementById('jobFamilySelect');
+            select.innerHTML = '';
+            select.disabled = false;
+            
+            families.forEach(family => {
+                const jobCount = jobData.filter(d => d['Job_Profile_w/o_Level'] === family).length;
+                const option = document.createElement('option');
+                option.value = family;
+                const displayName = family.length > 50 ? family.substring(0, 50) + "..." : family;
+                option.textContent = `${displayName} (${jobCount} jobs)`;
+                select.appendChild(option);
+            });
+            
+            select.addEventListener('change', function(e) {
+                const selectedFamilies = Array.from(e.target.selectedOptions).map(option => option.value);
+                console.log('Selected families:', selectedFamilies);
+                if (selectedFamilies.length > 0) {
+                    updateVisualization(selectedFamilies);
+                    updateTable(selectedFamilies);
+                } else {
+                    clearVisualization();
+                    clearTable();
+                }
+            });
+        }
+        
+        function populatePayGradeDropdown() {
+            console.log('Populating pay grade dropdown...');
+            
+            const payGrades = [...new Set(jobData.map(d => d.era_pay_group).filter(pg => pg !== null && pg !== undefined))];
+            payGrades.sort((a, b) => a - b);
+            
+            const select = document.getElementById('payGradeSelect');
+            select.innerHTML = '';
+            select.disabled = false;
+            
+            payGrades.forEach(grade => {
+                const jobCount = jobData.filter(d => d.era_pay_group === grade).length;
+                const option = document.createElement('option');
+                option.value = grade;
+                option.textContent = `Pay Grade ${grade} (${jobCount} jobs)`;
+                select.appendChild(option);
+            });
+            
+            select.addEventListener('change', function(e) {
+                const selectedGrades = Array.from(e.target.selectedOptions).map(option => parseInt(option.value));
+                console.log('Selected grades:', selectedGrades);
+                if (selectedGrades.length > 0) {
+                    updateVisualizationByPayGrade(selectedGrades);
+                    updateTableByPayGrade(selectedGrades);
+                } else {
+                    clearVisualization();
+                    clearTable();
+                }
+            });
+        }
+        
+        // Visualization functions
+        function updateVisualization(selectedFamilies) {
+            const families = Array.isArray(selectedFamilies) ? selectedFamilies : [selectedFamilies];
+            let familyData = jobData.filter(d => families.includes(d['Job_Profile_w/o_Level']));
+            const familyText = families.length === 1 ? families[0] : `${families.length} job families`;
+            updateVisualizationCore(familyData, familyText);
+        }
+        
+        function updateVisualizationByPayGrade(selectedGrades) {
+            let familyData = jobData.filter(d => selectedGrades.includes(d.era_pay_group));
+            updateVisualizationCore(familyData, `${selectedGrades.length} pay grades`);
+        }
+        
+        function updateVisualizationCore(familyData, selectionText) {
+            if (familyData.length === 0) {
+                document.getElementById('chartInfo').textContent = 'No data available for selected items';
+                return;
+            }
+            
+            const includeLeadership = document.getElementById('includeLeadership').checked;
+            
+            // Sort by pay group
+            familyData = familyData.sort((a, b) => {
+                if (a.era_pay_group !== b.era_pay_group) {
+                    return (a.era_pay_group || 0) - (b.era_pay_group || 0);
+                }
+                return a.job_title.localeCompare(b.job_title);
+            });
+            
+            // Add unique index
+            familyData.forEach((job, index) => {
+                job._uniqueIndex = index;
+            });
+            
+            const leadershipText = includeLeadership ? " (with leadership)" : "";
+            document.getElementById('chartInfo').textContent = `${familyData.length} positions in ${selectionText}${leadershipText}`;
+            
+            // Chart dimensions
+            const margin = {top: 20, right: 30, bottom: 90, left: 60};
+            const width = 1450 - margin.left - margin.right;
+            const height = 550 - margin.bottom - margin.top;
+            
+            // Clear previous chart
+            d3.select("#chart").selectAll("*").remove();
+            
+            const svg = d3.select("#chart")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+            
+            const g = svg.append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // Determine which total points to use
+            const getTotalPoints = (d) => includeLeadership ? (d['TOTAL_POINTS_w/leadership'] || d.TOTAL_POINTS) : d.TOTAL_POINTS;
+            
+            // Check if has leadership points for orange color (only when toggle is on)
+            const hasLeadershipPoints = (d) => {
+                return includeLeadership && (d.LEADERSHOP_POINTS > 0);
+            };
+            
+            // Scales
+            const xScale = d3.scaleBand()
+                .domain(familyData.map((d, i) => i))
+                .range([0, width])
+                .padding(0.2);
+            
+            const allPoints = [
+                ...familyData.map(d => d.era_total_points),
+                ...familyData.map(d => getTotalPoints(d))
+            ];
+            
+            // Get pay grade boundaries
+            const allPayGradeBounds = [];
+            familyData.forEach(d => {
+                if (d.MIN_era_pay_grade) allPayGradeBounds.push(d.MIN_era_pay_grade);
+                if (d.MAX_era_pay_grade) allPayGradeBounds.push(d.MAX_era_pay_grade);
+            });
+            
+            const allValues = [...allPoints, ...allPayGradeBounds];
+            const yExtent = d3.extent(allValues);
+            
+            const yScale = d3.scaleLinear()
+                .domain([yExtent[0] - 3, yExtent[1] + 3])
+                .range([height, 0]);
+            
+            // Create pay grade background boxes
+            const payGrades = [...new Set(familyData.map(d => d.era_pay_group).filter(pg => pg !== null && pg !== undefined))].sort((a, b) => a - b);
+            
+            payGrades.forEach(payGrade => {
+                const jobsInGrade = familyData.filter(d => d.era_pay_group === payGrade);
+                const indices = jobsInGrade.map(job => familyData.indexOf(job));
+                const minIndex = Math.min(...indices);
+                const maxIndex = Math.max(...indices);
+                
+                const sampleJob = jobsInGrade[0];
+                const minPayGradeBoundary = sampleJob.MIN_era_pay_grade;
+                const maxPayGradeBoundary = sampleJob.MAX_era_pay_grade;
+                
+                const boxX = xScale(minIndex);
+                const boxWidth = xScale(maxIndex) - xScale(minIndex) + xScale.bandwidth();
+                const boxY = yScale(maxPayGradeBoundary);
+                const boxHeight = yScale(minPayGradeBoundary) - yScale(maxPayGradeBoundary);
+                
+                // Pay grade box
+                g.append("rect")
+                    .attr("x", boxX)
+                    .attr("y", boxY)
+                    .attr("width", boxWidth)
+                    .attr("height", boxHeight)
+                    .attr("fill", `rgba(128, 0, 128, 0.12)`)
+                    .attr("stroke", `rgba(128, 0, 128, 0.25)`)
+                    .attr("stroke-width", 1.5)
+                    .attr("rx", 8);
+                
+                // Pay grade label
+                g.append("text")
+                    .attr("x", boxX + boxWidth / 2)
+                    .attr("y", height + 30)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "11px")
+                    .style("font-weight", "bold")
+                    .style("fill", "#6a0dad")
+                    .text(`Pay Grade ${payGrade}`);
+                
+                // Boundary info
+                g.append("text")
+                    .attr("x", boxX + boxWidth / 2)
+                    .attr("y", height + 45)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", "9px")
+                    .style("fill", "#888")
+                    .text(`(${minPayGradeBoundary}-${maxPayGradeBoundary} pts)`);
+            });
+            
+            // Add axes
+            g.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale).tickFormat(() => ""));
+            
+            g.append("g")
+                .call(d3.axisLeft(yScale));
+            
+            // Y-axis label
+            g.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 0 - margin.left)
+                .attr("x", 0 - (height / 2))
+                .attr("dy", "1em")
+                .style("text-anchor", "middle")
+                .style("font-size", "14px")
+                .text("Points");
+            
+            // Tooltip
+            const tooltip = d3.select("#tooltip");
+            
+            // Connecting lines
+            g.selectAll(".connect-line")
+                .data(familyData)
+                .enter()
+                .append("line")
+                .attr("x1", (d, i) => xScale(i) + xScale.bandwidth() / 2)
+                .attr("x2", (d, i) => xScale(i) + xScale.bandwidth() / 2)
+                .attr("y1", d => yScale(d.era_total_points))
+                .attr("y2", d => yScale(getTotalPoints(d)))
+                .attr("stroke", "lightblue")
+                .attr("stroke-width", 2)
+                .attr("opacity", 0.8);
+            
+            // Old grading dots
+            g.selectAll(".old-dot")
+                .data(familyData)
+                .enter()
+                .append("circle")
+                .attr("cx", (d, i) => xScale(i) + xScale.bandwidth() / 2)
+                .attr("cy", d => yScale(d.era_total_points))
+                .attr("r", 6)
+                .attr("fill", "lightblue")
+                .style("cursor", "pointer")
+                .on("mouseover", function(event, d) {
+                    const totalPts = getTotalPoints(d);
+                    const leadershipPts = includeLeadership ? (d.LEADERSHOP_POINTS || 0) : 0;
+                    tooltip.style("display", "block")
+                        .html(`<strong>${d.job_title}</strong><br/>
+                               Pay Group: ${d.era_pay_group}<br/>
+                               Old ERA Points: ${d.era_total_points}<br/>
+                               New Total Points: ${totalPts}${includeLeadership ? ` (${leadershipPts} leadership)` : ''}<br/>
+                               Change: ${totalPts - d.era_total_points > 0 ? '+' : ''}${totalPts - d.era_total_points}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.style("display", "none");
+                })
+                .on("click", function(event, d) {
+                    highlightTableRow(d._uniqueIndex);
+                });
+            
+            // New grading dots - orange only if leadership toggle is on AND has leadership points, otherwise dark blue
+            g.selectAll(".new-dot")
+                .data(familyData)
+                .enter()
+                .append("circle")
+                .attr("cx", (d, i) => xScale(i) + xScale.bandwidth() / 2)
+                .attr("cy", d => yScale(getTotalPoints(d)))
+                .attr("r", 6)
+                .attr("fill", d => hasLeadershipPoints(d) ? "darkorange" : "darkblue")
+                .style("cursor", "pointer")
+                .on("mouseover", function(event, d) {
+                    const totalPts = getTotalPoints(d);
+                    const leadershipPts = includeLeadership ? (d.LEADERSHOP_POINTS || 0) : 0;
+                    tooltip.style("display", "block")
+                        .html(`<strong>${d.job_title}</strong><br/>
+                               Pay Group: ${d.era_pay_group}<br/>
+                               Old ERA Points: ${d.era_total_points}<br/>
+                               New Total Points: ${totalPts}${includeLeadership ? ` (${leadershipPts} leadership)` : ''}<br/>
+                               Change: ${totalPts - d.era_total_points > 0 ? '+' : ''}${totalPts - d.era_total_points}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.style("display", "none");
+                })
+                .on("click", function(event, d) {
+                    highlightTableRow(d._uniqueIndex);
+                });
+            
+            // Job titles
+            g.selectAll(".job-label")
+                .data(familyData)
+                .enter()
+                .append("foreignObject")
+                .attr("x", (d, i) => xScale(i) + xScale.bandwidth() / 2 + 8)
+                .attr("y", d => yScale(getTotalPoints(d)) - 10)
+                .attr("width", 120)
+                .attr("height", 40)
+                .style("pointer-events", "none")
+                .html(d => {
+                    const wrappedTitle = wrapText(d.job_title, 20);
+                    return `<div style="font-size: 9px; font-weight: bold; color: #333; line-height: 1.1;">${wrappedTitle}</div>`;
+                });
+        }
+        
+        // Table functions
+        function updateTable(selectedFamilies) {
+            const families = Array.isArray(selectedFamilies) ? selectedFamilies : [selectedFamilies];
+            let familyData = jobData.filter(d => families.includes(d['Job_Profile_w/o_Level']));
+            updateTableCore(familyData);
+        }
+        
+        function updateTableByPayGrade(selectedGrades) {
+            let familyData = jobData.filter(d => selectedGrades.includes(d.era_pay_group));
+            updateTableCore(familyData);
+        }
+        
+        function updateTableCore(familyData) {
+            // Sort by pay group
+            familyData = familyData.sort((a, b) => {
+                if (a.era_pay_group !== b.era_pay_group) {
+                    return (a.era_pay_group || 0) - (b.era_pay_group || 0);
+                }
+                return a.job_title.localeCompare(b.job_title);
+            });
+            
+            // Add unique index
+            familyData.forEach((job, index) => {
+                job._uniqueIndex = index;
+            });
+            
+            // All columns with new ERA points columns after leadership points
+            const tableColumns = [
+                'job_title', 'era_total_points', 'TOTAL_POINTS', 'TOTAL_POINTS_w/leadership', 'era_pay_group', 'job_summary', 'responsibilities', 
+                'budget_responsibility', 'people_responsibility', 'interaction_scope', 'education', 
+                'experience_level', 'customer_stakeholder_interaction',
+                'COMPETENCE_ERA', 'RESPONSIBILITY_ERA', 'INTERACTION_ERA',
+                'COMPETENCE_POINTS', 'RESPONSIBILITY_POINTS', 'INTERACTION_POINTS',
+                'LEADERSHOP_POINTS', 'COMPETENCE_ERA_POINTS', 'RESPONSIBILITY_ERA_POINTS',
+                'Job_Profile_w/o_Level'
+            ];
+            
+            // Create table header
+            const thead = document.getElementById('tableHead');
+            thead.innerHTML = '';
+            const headerRow = document.createElement('tr');
+            
+            const columnDisplayNames = {
+                'job_title': 'JOB TITLE',
+                'era_total_points': 'ERA POINTS (OLD)',
+                'TOTAL_POINTS': 'TOTAL POINTS (NEW)',
+                'LEADERSHOP_POINTS': 'LEADERSHIP POINTS',
+                'TOTAL_POINTS_w/leadership': 'TOTAL WITH LEADERSHIP',
+                'COMPETENCE_ERA_POINTS': 'COMPETENCE ERA POINTS',
+                'RESPONSIBILITY_ERA_POINTS': 'RESPONSIBILITY ERA POINTS',
+                'era_pay_group': 'PAY GROUP',
+                'job_summary': 'JOB SUMMARY',
+                'responsibilities': 'RESPONSIBILITIES',
+                'budget_responsibility': 'BUDGET RESPONSIBILITY',
+                'people_responsibility': 'PEOPLE RESPONSIBILITY',
+                'interaction_scope': 'INTERACTION SCOPE',
+                'education': 'EDUCATION',
+                'experience_level': 'EXPERIENCE LEVEL',
+                'customer_stakeholder_interaction': 'CUSTOMER STAKEHOLDER INTERACTION',
+                'COMPETENCE_ERA': 'COMPETENCE ERA',
+                'RESPONSIBILITY_ERA': 'RESPONSIBILITY ERA',
+                'INTERACTION_ERA': 'INTERACTION ERA',
+                'COMPETENCE_POINTS': 'COMPETENCE POINTS',
+                'RESPONSIBILITY_POINTS': 'RESPONSIBILITY POINTS',
+                'INTERACTION_POINTS': 'INTERACTION POINTS',
+                'Job_Profile_w/o_Level': 'JOB FAMILY'
+            };
+            
+            const wideColumns = ['job_summary', 'responsibilities', 'interaction_scope', 'customer_stakeholder_interaction'];
+            
+            tableColumns.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = columnDisplayNames[col] || col.replace(/_/g, ' ').toUpperCase();
+                th.title = col;
+                if (wideColumns.includes(col)) {
+                    th.classList.add('wide-column');
+                }
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            
+            // Create table body
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            familyData.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-unique-index', index);
+                tr.setAttribute('data-job-title', row.job_title);
+                
+                tableColumns.forEach(col => {
+                    const td = document.createElement('td');
+                    td.textContent = row[col] || '';
+                    td.title = row[col] || '';
+                    if (wideColumns.includes(col)) {
+                        td.classList.add('wide-column');
+                    }
+                    tr.appendChild(td);
+                });
+                
+                // Add click event to expand row
+                tr.addEventListener('click', function() {
+                    expandTableRow(this);
+                });
+                
+                tbody.appendChild(tr);
+            });
+        }
+        
+        // Utility functions
+        function wrapText(text, maxLength) {
+            if (text.length <= maxLength) return text;
+            
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+            
+            for (const word of words) {
+                if ((currentLine + word).length <= maxLength) {
+                    currentLine += (currentLine ? ' ' : '') + word;
+                } else {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                        currentLine = word;
+                    } else {
+                        lines.push(word.substring(0, maxLength));
+                        currentLine = word.substring(maxLength);
+                    }
+                }
+            }
+            
+            if (currentLine) lines.push(currentLine);
+            return lines.slice(0, 3).join('<br>');
+        }
+        
+        function highlightTableRow(uniqueIndex) {
+            // Remove previous highlights and expanded states
+            document.querySelectorAll('.highlighted-row').forEach(row => {
+                row.classList.remove('highlighted-row');
+            });
+            document.querySelectorAll('.expanded-row').forEach(row => {
+                row.classList.remove('expanded-row');
+            });
+            
+            // Highlight and expand the clicked row using unique index
+            const row = document.querySelector(`tr[data-unique-index="${uniqueIndex}"]`);
+            if (row) {
+                row.classList.add('highlighted-row');
+                expandTableRow(row);
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+        
+        function expandTableRow(row) {
+            // Toggle expanded state
+            if (row.classList.contains('expanded-row')) {
+                row.classList.remove('expanded-row');
+            } else {
+                // Remove expansion from other rows first
+                document.querySelectorAll('.expanded-row').forEach(r => {
+                    r.classList.remove('expanded-row');
+                });
+                row.classList.add('expanded-row');
+            }
+        }
+        
+        function clearVisualization() {
+            d3.select("#chart").selectAll("*").remove();
+            document.getElementById('chartInfo').textContent = 'Upload your CSV file and select items to view the grading comparison';
+        }
+        
+        function clearTable() {
+            document.getElementById('tableHead').innerHTML = '';
+            document.getElementById('tableBody').innerHTML = '';
+        }
+        
+        // Leadership toggle functionality
+        function setupLeadershipToggle() {
+            const leadershipToggle = document.getElementById('includeLeadership');
+            const leadershipToggleLabel = document.getElementById('leadershipToggleLabel');
+            
+            if (leadershipToggle) {
+                leadershipToggle.addEventListener('change', () => {
+                    // Update legend - orange instead of green
+                    const newDotLegend = document.getElementById('newDotLegend');
+                    const newDotText = document.getElementById('newDotText');
+                    
+                    if (leadershipToggle.checked) {
+                        newDotLegend.style.backgroundColor = 'darkorange';
+                        newDotText.textContent = 'New Grading (with Leadership)';
+                        leadershipToggleLabel.classList.add('leadership-toggle-active');
+                    } else {
+                        newDotLegend.style.backgroundColor = 'darkblue';
+                        newDotText.textContent = 'New Grading (Total Points)';
+                        leadershipToggleLabel.classList.remove('leadership-toggle-active');
+                    }
+                    
+                    // Refresh visualization based on current filter
+                    const familyRadio = document.querySelector('input[value="family"]');
+                    if (familyRadio.checked) {
+                        const select = document.getElementById('jobFamilySelect');
+                        const selectedFamilies = Array.from(select.selectedOptions).map(option => option.value);
+                        if (selectedFamilies.length > 0) {
+                            updateVisualization(selectedFamilies);
+                            updateTable(selectedFamilies);
+                        }
+                    } else {
+                        const select = document.getElementById('payGradeSelect');
+                        const selectedGrades = Array.from(select.selectedOptions).map(option => parseInt(option.value));
+                        if (selectedGrades.length > 0) {
+                            updateVisualizationByPayGrade(selectedGrades);
+                            updateTableByPayGrade(selectedGrades);
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Filter toggle setup
+        function setupFilterToggle() {
+            const familyRadio = document.querySelector('input[value="family"]');
+            const paygradeRadio = document.querySelector('input[value="paygrade"]');
+            const familySelect = document.getElementById('jobFamilySelect');
+            const paygradeSelect = document.getElementById('payGradeSelect');
+            const familyLabel = document.querySelector('label[for="jobFamilySelect"]');
+            const paygradeLabel = document.querySelector('label[for="payGradeSelect"]');
+            
+            function toggleFilter() {
+                if (familyRadio.checked) {
+                    familySelect.style.display = 'block';
+                    paygradeSelect.style.display = 'none';
+                    familyLabel.style.display = 'block';
+                    paygradeLabel.style.display = 'none';
+                } else {
+                    familySelect.style.display = 'none';
+                    paygradeSelect.style.display = 'block';
+                    familyLabel.style.display = 'none';
+                    paygradeLabel.style.display = 'block';
+                }
+            }
+            
+            familyRadio.addEventListener('change', toggleFilter);
+            paygradeRadio.addEventListener('change', toggleFilter);
+        }
+        
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing...');
+            setupFileUpload();
+            setupFilterToggle();
+            setupLeadershipToggle();
+            console.log('Setup complete');
+        });
+        
+        console.log('Script end');
+    </script>
+</body>
+</html>
